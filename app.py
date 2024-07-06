@@ -1,3 +1,4 @@
+import os, json
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
@@ -5,10 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from datetime import datetime, timedelta
 from functools import wraps
-
-
-
-
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app)
@@ -17,8 +15,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your_secret_key_here'
 app.config['JWT_SECRET_KEY'] = 'jwt_secret_key_here'
 
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'media')
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -39,6 +42,7 @@ class Books(db.Model):
     type = db.Column(db.Integer, nullable=False)  # Should be 1 or 2
     available = db.Column(db.Boolean, nullable=False, default=True)
     active = db.Column(db.Boolean, nullable=False, default=True)
+    filename = db.Column(db.String(200), nullable=True)
     loaned_books = db.relationship('LoanedBooks', backref='book', lazy=True)
 
 # LoanedBooks model
@@ -50,6 +54,8 @@ class LoanedBooks(db.Model):
     return_date = db.Column(db.DateTime, nullable=False)
     active = db.Column(db.Boolean, nullable=False, default=True)
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def admin_required(fn):
     @wraps(fn)
@@ -112,10 +118,19 @@ def private():
 @jwt_required()
 @admin_required
 def add_book():
-    data = request.get_json()
-
-    if not data or not 'name' in data or not 'author' in data or not 'year_published' in data:
+    data = request.form.get('data')
+    
+    if not data:
         return jsonify({"message": "Invalid data"}), 400
+
+    try:
+        data = json.loads(data)
+    except ValueError:
+        return jsonify({"message": "Invalid JSON"}), 400
+
+    if 'name' not in data or 'author' not in data or 'year_published' not in data or 'type' not in data:
+        return jsonify({"message": "Missing data"}), 400
+
 
     name = data.get('name')
     author = data.get('author')
@@ -133,24 +148,29 @@ def add_book():
             db.session.commit()
             return jsonify({'message': 'Book reactivated successfully'}), 200
 
+    image = request.files.get('image')
+    
+    if image and allowed_file(image.filename):
+        filename = secure_filename(image.filename)
+        image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        #image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    else:
+        #image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'default.jpeg')
+        filename = 'default.jpeg'
+
     # Add a new book entry
-    new_book = Books(name=name, author=author, year_published=year_published, type=type)
+    new_book = Books(
+        name=name,
+        author=author,
+        year_published=year_published,
+        type=type,
+        #image_path=image_path
+        filename = filename
+    )
     db.session.add(new_book)
     db.session.commit()
 
     return jsonify({'message': 'Book added successfully'}), 201
-
-# @app.route('/delete_book/<int:book_id>', methods=['DELETE'])
-# def delete_book(book_id):
-#     book = Books.query.get(book_id)
-
-#     if not book:
-#         return jsonify({'message': 'Book not found'}), 404
-
-#     db.session.delete(book)
-#     db.session.commit()
-
-#     return jsonify({'message': 'Book deleted successfully'}), 200
 
 @app.route('/loan_book', methods=['POST'])
 @jwt_required()
