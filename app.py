@@ -1,5 +1,5 @@
 import os, json
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -107,11 +107,6 @@ def login():
     access_token = create_access_token(identity=email)
     return jsonify({'access_token': access_token}), 200
 
-@app.route('/private', methods=['GET'])
-@jwt_required()
-def private():
-    current_user = get_jwt_identity()
-    return jsonify({'message': f'Hello, {current_user}! This is a private endpoint.'}), 200
 
 # Example route to add a book
 @app.route('/add_book', methods=['POST'])
@@ -153,9 +148,7 @@ def add_book():
     if image and allowed_file(image.filename):
         filename = secure_filename(image.filename)
         image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        #image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     else:
-        #image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'default.jpeg')
         filename = 'default.jpeg'
 
     # Add a new book entry
@@ -164,7 +157,6 @@ def add_book():
         author=author,
         year_published=year_published,
         type=type,
-        #image_path=image_path
         filename = filename
     )
     db.session.add(new_book)
@@ -172,11 +164,11 @@ def add_book():
 
     return jsonify({'message': 'Book added successfully'}), 201
 
-@app.route('/loan_book', methods=['POST'])
+@app.route('/loan_book/<int:book_id>', methods=['POST'])
 @jwt_required()
-def loan_book():
-    data = request.get_json()
-    book_id = data.get('book_id') # I can change it to loan_book(book_id)
+def loan_book(book_id):
+    #data = request.get_json()
+    #book_id = data.get('book_id') # I can change it to loan_book(book_id)
     current_user = get_jwt_identity()
     
     book = Books.query.get(book_id)
@@ -204,12 +196,12 @@ def loan_book():
 
     return jsonify({'message': 'Book loaned successfully', 'return_date': return_date.strftime('%Y-%m-%d')}), 201
 
-@app.route('/return_book', methods=['POST'])
+@app.route('/return_book/<int:loaned_book_id>', methods=['POST'])
 @jwt_required()
-def return_book():
-    data = request.get_json()
-    loaned_book_id = data.get('loaned_book_id')
-    print(loaned_book_id)
+def return_book(loaned_book_id):
+    #data = request.get_json()
+    #loaned_book_id = data.get('loaned_book_id')
+    #print(loaned_book_id)
     # Get the current user's email
     current_user_email = get_jwt_identity()
     
@@ -245,12 +237,12 @@ def return_book():
     return jsonify({'message': 'Book returned successfully'}), 200
 
 
-@app.route('/remove_book', methods=['POST'])
+@app.route('/remove_book/<int:book_id>', methods=['POST'])
 @jwt_required()
 @admin_required
-def remove_book():
-    data = request.get_json()
-    book_id = data.get('book_id')
+def remove_book(book_id):
+    #data = request.get_json()
+    #book_id = data.get('book_id')
     
     # Fetch the book entry from the database
     book = Books.query.get(book_id)
@@ -269,56 +261,6 @@ def remove_book():
 
     return jsonify({'message': 'Book removed successfully'}), 200
 
-@app.route('/find_book', methods=['POST'])
-def find_book():
-    data = request.get_json()
-    book_name = data.get('name')
-    
-    if not book_name:
-        return jsonify({'message': 'Book name is required'}), 400
-
-    # Fetch the active book by name
-    book = Books.query.filter_by(name=book_name, active=True).first()
-
-    if not book:
-        return jsonify({'message': 'Active book not found'}), 404
-
-    return jsonify({
-        'id': book.id,
-        'name': book.name,
-        'author': book.author,
-        'year_published': book.year_published,
-        'type': book.type,
-        'available': book.available,
-        'active': book.active
-    }), 200
-
-
-@app.route('/find_user', methods=['POST'])
-@jwt_required()
-@admin_required
-def find_user():
-    data = request.get_json()
-    full_name = data.get('full_name')
-    print(full_name)
-    
-    if not full_name:
-        return jsonify({'message': 'Full name is required'}), 400
-
-    # Fetch the active user by full name
-    user = User.query.filter_by(full_name=full_name, active=True).first()
-
-    if not user:
-        return jsonify({'message': 'Active user not found'}), 404
-
-    return jsonify({
-        'id': user.id,
-        'email': user.email,
-        'full_name': user.full_name,
-        'age': user.age,
-        'role': user.role,
-        'active': user.active
-    }), 200
 
 @app.route('/display_active_books', methods=['GET'])
 def display_active_books():
@@ -436,6 +378,64 @@ def display_late_loans():
 
     return jsonify(late_loans_list), 200
 
+@app.route('/user', methods=['GET'])
+@jwt_required()
+def get_user():
+    current_user_email = get_jwt_identity()
+    user = User.query.filter_by(email=current_user_email).first()
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    
+    return jsonify({
+        'email': user.email,
+        'role': user.role,
+        'full_name': user.full_name,
+        'age': user.age
+    }), 200
+
+@app.route('/books', methods=['GET'])
+def get_books():
+    books = Books.query.filter_by(active=True).all()
+    books_list = []
+    for book in books:
+        books_list.append({
+            'id': book.id,
+            'name': book.name,
+            'author': book.author,
+            'year_published': book.year_published,
+            'filename': book.filename,
+            'available': book.available
+        })
+    return jsonify(books_list), 200
+
+@app.route('/user_books', methods=['GET'])
+@jwt_required()
+def get_user_books():
+    current_user_email = get_jwt_identity()
+    user = User.query.filter_by(email=current_user_email).first()
+
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    books = Books.query.filter_by(active=True).all()
+    books_list = []
+    for book in books:
+        loaned_book = LoanedBooks.query.filter_by(user_id=user.id, book_id=book.id, active=True).first()
+        books_list.append({
+            'id': book.id,
+            'name': book.name,
+            'author': book.author,
+            'year_published': book.year_published,
+            'filename': book.filename,
+            'available': book.available,
+            'loaned_by_user': loaned_book is not None
+        })
+    return jsonify(books_list), 200
+
+# Route to serve images
+@app.route('/media/<filename>')
+def media(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 if __name__ == '__main__':
     with app.app_context():
