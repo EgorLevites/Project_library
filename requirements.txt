@@ -12,3 +12,4 @@ PyJWT==2.8.0
 SQLAlchemy==2.0.31
 typing_extensions==4.12.2
 Werkzeug==3.0.3
+gunicorn==20.1.0
