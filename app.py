@@ -249,28 +249,6 @@ def remove_book(book_id):
 
     return jsonify({'message': 'Book removed successfully'}), 200
 
-# Route to display active books
-@app.route('/display_active_books', methods=['GET'])
-def display_active_books():
-    books = Books.query.filter_by(active=True).all()
-    
-    if not books:
-        return jsonify({'message': 'No active books found'}), 404
-
-    books_list = []
-    for book in books:
-        books_list.append({
-            'id': book.id,
-            'name': book.name,
-            'author': book.author,
-            'year_published': book.year_published,
-            'type': book.type,
-            'available': book.available,
-            'active': book.active
-        })
-
-    return jsonify(books_list), 200
-
 # Route to display all active users (admin only)
 @app.route('/display_all_users', methods=['GET'])
 @jwt_required()
